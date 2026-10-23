@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nifty Black-Scholes Calculator</title>
+<style>
+:root{--bg:#f3f5f9;--card:#fff;--ink:#14213d;--mute:#5b6477;--line:#d9deea;--acc:#1d3fb8;--up:#117a4a;--dn:#b3261e;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1424;--card:#172038;--ink:#e8ecf7;--mute:#9aa5c0;--line:#2a3555;--acc:#7f9bff;--up:#4cd08f;--dn:#ff8a80;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0e1424;--card:#172038;--ink:#e8ecf7;--mute:#9aa5c0;--line:#2a3555;--acc:#7f9bff;--up:#4cd08f;--dn:#ff8a80;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px;max-width:640px;margin-inline:auto}
+h1{font:600 24px/1.2 Georgia,"Times New Roman",serif;margin:8px 0 4px}
+h2{font:600 18px/1.3 Georgia,serif;margin:0 0 10px}
+p.sub{color:var(--mute);margin:0 0 16px;font-size:14px}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+.g{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label{display:block;font-size:13px;color:var(--mute)}
+input,select{width:100%;margin-top:3px;padding:9px;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+button{font:inherit;font-weight:600;padding:10px 14px;border-radius:8px;border:0;background:var(--acc);color:#fff;cursor:pointer;margin-top:10px}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) button{color:#0e1424}}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+td,th{padding:7px 4px;border-bottom:1px solid var(--line);text-align:right;font-size:15px}
+td:first-child,th:first-child{text-align:left;color:var(--mute)}
+.big{font:600 30px/1.1 Georgia,serif;font-variant-numeric:tabular-nums}
+.up{color:var(--up)}.dn{color:var(--dn)}
+.note{font-size:13px;color:var(--mute);margin-top:8px}
+.row{display:flex;gap:10px;align-items:center;margin-top:10px;font-size:14px}
+.row input{width:auto;margin:0}
+.fe{display:block;color:var(--dn);font-size:12px;min-height:0}[aria-invalid="true"]{border-color:var(--dn)}input:disabled{opacity:.5}#err{color:var(--dn);font-size:14px}
+</style>
+</head>
+<body>
+<h1>Nifty option calculator</h1>
+<p class="sub">Black-Scholes price, Greeks, implied volatility and what-if scenarios.</p>
+
+<section>
+<h2>Inputs</h2>
+<div class="g">
+<label>Nifty spot<input id="S" type="number" value="22600" step="any"></label>
+<label>Strike<input id="K" type="number" value="22800" step="any"></label>
+<label>Type<select id="T"><option value="C">Call (CE)</option><option value="P">Put (PE)</option></select></label>
+<label>Days to expiry<input id="D" type="number" value="4" step="any"></label>
+<label>Volatility (IV) %<input id="V" type="number" value="14" step="any"></label>
+<label>Risk-free rate %<input id="R" type="number" value="5.75" step="any"></label>
+<label>Dividend yield %<input id="Q" type="number" value="1.5" step="any"></label>
+<label>Market price (for IV)<input id="M" type="number" value="58.45" step="any"></label>
+<label>Futures price (optional)<input id="FP" type="number" value="22589" step="any"></label>
+</div>
+<div class="row"><input id="F" type="checkbox"><label for="F" style="margin:0">Use futures price F with the Black-76 model (replaces spot; dividend yield ignored)</label></div>
+<button id="go">Calculate</button>
+</section>
+
+<section>
+<h2>Result</h2>
+<div id="err" role="alert"></div><div class="note" id="mdl"></div>
+<div class="big" id="price">–</div>
+<div class="note" id="iv"></div>
+<table id="gr" style="margin-top:8px"></table>
+</section>
+
+<section>
+<h2>Trade metrics</h2>
+<table id="mx"></table>
+<div class="note">Probabilities are risk-neutral model values, not forecasts. The 1σ move = underlying × annualised σ × √T (T in years): the model’s one-standard-deviation spread (about 68% in a lognormal model). It is not a direction call, a guaranteed range or a limit.</div>
+</section>
+
+<section>
+<h2>What-if scenario</h2>
+<div class="g">
+<label>New spot<input id="S2" type="number" value="22700" step="any"></label>
+<label>New days to expiry<input id="D2" type="number" value="3" step="any"></label>
+<label>New IV % (blank = keep)<input id="V2" type="number" step="any" placeholder="same"></label>
+</div>
+<button id="go2">Run scenario</button>
+<table id="sc" style="margin-top:8px"></table>
+<div class="note" id="split"></div><div class="note" id="apx"></div>
+</section>
+
+<section>
+<h2>Learn: key terms</h2>
+<details><summary>Models: when to use which</summary><p class="note"><b>Black–Scholes–Merton</b> prices a European option on a spot price S with rate r and dividend yield q. <b>Black-76</b> prices it on a futures price F, so spot and dividends are not needed. Nifty options are settled against the index at expiry and traded alongside futures, so Black-76 on the matching-expiry future is the usual market-style choice; spot Black–Scholes suits learning and index-level analysis.</p></details>
+<details><summary>Options basics</summary><p class="note">A call gains when the underlying rises, a put when it falls. The strike K is the agreed level. Intrinsic value is the payoff if exercised now; time value is the rest of the premium. Time value shrinks toward expiry (time decay). Higher implied volatility (IV) raises premiums because larger moves become more likely. The risk-free rate and dividend yield shift the forward price and the discounting. A theoretical premium comes from the model; a market premium is what actually traded and can differ.</p></details>
+<details><summary>Greeks (sensitivities, not outcomes)</summary><p class="note">Delta: premium change per 1 point of the underlying. Gamma: change in delta per 1 point. Theta: premium change per calendar day. Vega: premium change per 1 IV percentage point. Rho: premium change per 1 percentage point of rate. They are local estimates; large moves make them less accurate. At expiry or with zero volatility some are undefined (shown as n/a); where the limit is 0 the page says so.</p></details>
+<details><summary>Time convention and limits</summary><p class="note">T = calendar days ÷ 365 as a date-only approximation. No exchange calendar, holidays, or exact expiry time (15:30 IST) are modelled. 0 days means payoff at expiry. IV is shown in %; the engine uses decimals. Supported ranges: days 0–3650, IV 0–1000%, rate −10 to 100%, yield −10 to 50%. European exercise, constant rate, yield and volatility. IV rank is not calculated because no volatility history is stored. Educational only; this is not trading advice.</p></details>
+</section>
+
+<section>
+<h2>The formulas</h2>
+<p class="note" style="margin:0">d1 = [ln(S/K) + (r − q + σ²/2)·T] / (σ√T), d2 = d1 − σ√T.<br>
+Call = S·e<sup>−qT</sup>·N(d1) − K·e<sup>−rT</sup>·N(d2). Put = K·e<sup>−rT</sup>·N(−d2) − S·e<sup>−qT</sup>·N(−d1).<br>
+T = days ÷ 365. Implied volatility has no closed form: the page tries σ values (bisection) until the model price equals the market price. Newton-Raphson does the same faster: σ ← σ − (model − market) ÷ vega.<br>1σ expected move = S·σ·√T. Chance of finishing in the money = N(d2) for a call, N(−d2) for a put. Breakeven = strike ± premium.<br>IV rank is explanatory only (not calculated here, since it needs a 1-year IV high and low): (IV − low) ÷ (high − low). It does not by itself make selling or buying profitable.<br>
+Educational tool, not trading advice. Real prices also reflect bid/ask, skew and the futures basis.</p>
+</section>
+
+<script>
+/* Nifty option calculation engine. European options only.
+ * Day count: T = calendar days / 365 (DAY_COUNT). Expiry time-of-day is not modelled.
+ * Models: 'BS' = Black-Scholes-Merton on spot S with yield q; 'B76' = Black-76 on futures F (q ignored).
+ * Both use the forward Fw (BS: S*exp((r-q)T); B76: F) in P = df*[Fw N(d1) - K N(d2)], df = exp(-rT).
+ * Normal CDF: West (2005) double-precision rational/continued-fraction form of Hart's algorithm (abs error ~1e-15).
+ * Invalid inputs THROW; nothing is silently replaced by 0. Greeks that are undefined return null. */
+(function (root) {
+'use strict';
+const DAY_COUNT = 365, EPS = 1e-12;
+function N(x) {
+  const z = Math.abs(x); let c;
+  if (z > 37) c = 0;
+  else {
+    const e = Math.exp(-z * z / 2);
+    if (z < 7.07106781186547) {
+      let b = 3.52624965998911e-2 * z + 0.700383064443688;
+      b = b * z + 6.37396220353165; b = b * z + 33.912866078383; b = b * z + 112.079291497871;
+      b = b * z + 221.213596169931; b = b * z + 220.206867912376; c = e * b;
+      b = 8.83883476483184e-2 * z + 1.75566716318264; b = b * z + 16.064177579207;
+      b = b * z + 86.7807322029461; b = b * z + 296.564248779674; b = b * z + 637.333633378831;
+      b = b * z + 793.826512519948; b = b * z + 440.413735824752; c = c / b;
+    } else { let b = z + 0.65; b = z + 4 / b; b = z + 3 / b; b = z + 2 / b; b = z + 1 / b; c = e / b / 2.506628274631; }
+  }
+  return x > 0 ? 1 - c : c;
+}
+const pdf = x => Math.exp(-x * x / 2) / 2.5066282746310002;
+const fin = x => typeof x === 'number' && Number.isFinite(x);
+function check(p) {
+  const e = [];
+  if (p.model !== 'BS' && p.model !== 'B76') e.push('unknown model');
+  if (!(fin(p.U) && p.U > 0)) e.push('underlying price must be > 0');
+  if (!(fin(p.K) && p.K > 0)) e.push('strike must be > 0');
+  if (!(fin(p.T) && p.T >= 0)) e.push('time to expiry must be ≥ 0');
+  if (!(fin(p.sig) && p.sig >= 0)) e.push('volatility must be ≥ 0');
+  if (!fin(p.r)) e.push('rate must be finite');
+  if (p.model === 'BS' && !fin(p.q)) e.push('dividend yield must be finite');
+  if (p.type !== 'C' && p.type !== 'P') e.push('type must be C or P');
+  if (e.length) throw new Error(e.join('; '));
+}
+function price(p) {
+  check(p);
+  const q = p.model === 'B76' ? 0 : p.q, T = p.T, call = p.type === 'C';
+  const df = Math.exp(-p.r * T), dF = p.model === 'B76' ? 1 : Math.exp((p.r - q) * T), fw = p.U * dF, sd = p.sig * Math.sqrt(T);
+  let d1 = null, d2 = null, n1, n2, m1, m2, ph = 0, atm = false;
+  if (sd > EPS) { d1 = (Math.log(fw / p.K) + sd * sd / 2) / sd; d2 = d1 - sd; n1 = N(d1); n2 = N(d2); m1 = N(-d1); m2 = N(-d2); ph = pdf(d1); }
+  else { atm = fw === p.K; n1 = n2 = atm ? 0.5 : (fw > p.K ? 1 : 0); m1 = m2 = 1 - n1; } // deterministic limit
+  let px = df * (call ? fw * n1 - p.K * n2 : p.K * m2 - fw * m1);
+  const lower = df * Math.max(call ? fw - p.K : p.K - fw, 0), upper = call ? df * fw : df * p.K;
+  if (!fin(px)) throw new Error('price is not finite');
+  px = Math.min(Math.max(px, lower), upper); // removes ~1e-16 rounding only
+  return { price: px, lower, upper, fw, df, dF, d1, d2, n1, n2, m1, m2, ph, sd, atm, q,
+    itmProb: (sd <= EPS && atm) ? null : (call ? n2 : m2) };
+}
+/* Units: delta per 1 unit of underlying; gamma per unit^2; theta per calendar day; vega per 1 vol point; rho per 1 rate point.
+ * B76 rho holds F fixed (= -T*P). */
+function greeks(p) {
+  const c = price(p), call = p.type === 'C', T = p.T, reg = c.sd > EPS, deg = c.atm && !reg, notes = [];
+  const sT = Math.sqrt(T), eq = Math.exp(-c.q * T);
+  const delta = deg ? null : c.df * c.dF * (call ? c.n1 : -c.m1);
+  const gamma = reg ? c.df * c.dF * c.dF * c.ph / (c.fw * c.sd) : (deg ? null : 0);
+  const vega = reg ? c.df * c.fw * c.ph * sT / 100 : (deg ? null : 0);
+  const decay = reg ? c.df * c.fw * c.ph * p.sig / (2 * sT) : 0;
+  let theta = null, rho = null;
+  if (T > 0 && !deg) {
+    theta = (p.model === 'B76' ? p.r * c.price - decay
+      : call ? -decay - p.r * p.K * c.df * c.n2 + c.q * p.U * eq * c.n1
+             : -decay + p.r * p.K * c.df * c.m2 - c.q * p.U * eq * c.m1) / DAY_COUNT;
+    rho = (p.model === 'B76' ? -T * c.price : call ? p.K * T * c.df * c.n2 : -p.K * T * c.df * c.m2) / 100;
+  } else if (T === 0) rho = 0;
+  if (deg) notes.push('At-the-money at expiry / zero volatility: delta, gamma, vega, theta, rho are undefined (only one-sided limits exist).');
+  if (T === 0) notes.push('Theta is undefined at expiry.');
+  else if (!reg && !deg) notes.push('Zero volatility: deterministic limit; gamma and vega are 0.');
+  return { delta, gamma, theta, vega, rho, notes };
+}
+function impliedVol(p, m, o) {
+  o = o || {}; const tolP = o.tolPrice || 1e-6, tolV = o.tolVol || 1e-12, fail = msg => ({ ok: false, error: msg });
+  const base = Object.assign({}, p, { sig: 0.2 });
+  try { check(base); } catch (e) { return fail(e.message); }
+  if (!fin(m) || m < 0) return fail('Market premium must be finite and ≥ 0.');
+  if (!(p.T > 0)) return fail('IV is undefined at expiry (T = 0).');
+  const at = s => price(Object.assign({}, base, { sig: s })).price, b = price(Object.assign({}, base, { sig: 0 }));
+  if (m < b.lower - tolP) return fail('Premium is below the no-arbitrage lower bound ' + b.lower.toFixed(4) + '.');
+  if (m > b.upper + tolP) return fail('Premium is above the no-arbitrage upper bound ' + b.upper.toFixed(4) + '.');
+  if (Math.abs(m - b.lower) <= tolP) return fail('Premium equals the lower bound: only the limit IV → 0 reproduces it, so no finite IV is reported.');
+  if (m >= b.upper - tolP) return fail('Premium is at the upper bound: it needs IV → ∞, so no finite IV is reported.');
+  let a = 1e-6, hi = 0.5;
+  if (m < at(a)) return fail('Premium is too close to the lower bound for a reliable IV.');
+  while (at(hi) < m) { hi *= 2; if (hi > 1e4) return fail('No finite IV found below 1,000,000%.'); }
+  let it = 0, mid = hi;
+  while (it++ < 300) { mid = (a + hi) / 2; const pm = at(mid); if (pm < m) a = mid; else hi = mid; if (hi - a < tolV * Math.max(1, mid) || Math.abs(pm - m) < 1e-10) break; }
+  const iv = (a + hi) / 2, theo = at(iv), diff = Math.abs(theo - m);
+  if (!fin(iv) || iv <= 0 || !(diff <= tolP)) return fail('Solver did not converge (premium difference ' + diff.toExponential(2) + ').');
+  return { ok: true, iv, theo, diff, iterations: it };
+}
+/* Sequential attribution, order: underlying -> time -> IV. Greeks estimate uses Taylor terms at the current point. */
+function scenario(p, s) {
+  const T2 = s.days2 / DAY_COUNT, sig2 = s.sig2 == null ? p.sig : s.sig2;
+  const p0 = price(p).price, a = price(Object.assign({}, p, { U: s.U2 })).price;
+  const b = price(Object.assign({}, p, { U: s.U2, T: T2 })).price, p1 = price(Object.assign({}, p, { U: s.U2, T: T2, sig: sig2 })).price;
+  const g = greeks(p), dU = s.U2 - p.U; let approx = null;
+  if ([g.delta, g.gamma, g.vega, g.theta].every(fin))
+    approx = g.delta * dU + 0.5 * g.gamma * dU * dU + g.vega * (sig2 - p.sig) * 100 + g.theta * (p.T - T2) * DAY_COUNT;
+  return { p0, p1, change: p1 - p0, pct: p0 > 1e-9 ? (p1 - p0) / p0 * 100 : null,
+    attrib: { underlying: a - p0, time: b - a, iv: p1 - b }, approx };
+}
+function num(raw, o) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (s === '') return o.req ? { e: o.name + ' is required' } : { v: null };
+  const v = Number(s);
+  if (!Number.isFinite(v)) return { e: o.name + ' must be a number' };
+  if (o.gt !== undefined && !(v > o.gt)) return { e: o.name + ' must be > ' + o.gt };
+  if (v < (o.min === undefined ? -Infinity : o.min) || v > (o.max === undefined ? Infinity : o.max)) return { e: o.name + ' must be between ' + o.min + ' and ' + o.max };
+  return { v };
+}
+/* Bounds: days 0–3650; IV 0–1000 %; r −10…100 %; q −10…50 % (wide on purpose). */
+function validate(raw, opt) {
+  const fut = !!(opt && opt.futures), errors = {}, values = {};
+  const rules = { S: { name: 'Spot', req: !fut, gt: 0 }, FP: { name: 'Futures price', req: fut, gt: 0 }, K: { name: 'Strike', req: true, gt: 0 },
+    D: { name: 'Days to expiry', req: true, min: 0, max: 3650 }, V: { name: 'IV %', req: true, min: 0, max: 1000 },
+    R: { name: 'Rate %', req: true, min: -10, max: 100 }, Q: { name: 'Dividend yield %', req: !fut, min: -10, max: 50 },
+    M: { name: 'Market premium', req: false, min: 0 }, S2: { name: 'Scenario price', req: true, gt: 0 },
+    D2: { name: 'Scenario days', req: true, min: 0, max: 3650 }, V2: { name: 'Scenario IV %', req: false, min: 0, max: 1000 } };
+  const skip = fut ? { S: 1, Q: 1 } : { FP: 1 }; // fields irrelevant to the selected model are never validated
+  for (const k in rules) {
+    if (skip[k]) { values[k] = null; continue; }
+    const r = num(raw[k], rules[k]);
+    if (r.e) errors[k] = r.e; else if (r.v != null) values[k] = ({ V: 1, R: 1, Q: 1, V2: 1 })[k] ? r.v / 100 : r.v; else values[k] = null;
+  }
+  return { errors, values };
+}
+root.NiftyEngine = { DAY_COUNT, N, pdf, price, greeks, impliedVol, scenario, validate };
+if (typeof module !== 'undefined') module.exports = root.NiftyEngine;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+const E=NiftyEngine,$=id=>document.getElementById(id);
+const f=(x,d=2)=>(x==null||!isFinite(x))?'n/a':Number(x).toFixed(d);
+const IDS=['S','K','D','V','R','Q','M','FP','S2','D2','V2'],MAIN=['S','K','D','V','R','Q','M','FP'];
+const rows=a=>a.map(x=>'<tr><td>'+x[0]+'</td><td>'+x[1]+'</td></tr>').join('');
+function setErr(m){IDS.forEach(id=>{const el=$(id);el.setAttribute('aria-invalid',m[id]?'true':'false');el.setAttribute('aria-describedby','fe_'+id);let s=el.parentNode.querySelector('.fe');if(!s){s=document.createElement('small');s.className='fe';s.id='fe_'+id;el.parentNode.appendChild(s)}s.textContent=m[id]||''})}
+function run(){
+ const raw={};IDS.forEach(id=>raw[id]=$(id).value);const fut=$('F').checked,type=$('T').value;
+ const v=E.validate(raw,{futures:fut});setErr(v.errors);
+ $('S').parentNode.firstChild.textContent=fut?'Spot (optional, carry hint only)':'Nifty spot';
+ $('FP').parentNode.firstChild.textContent=fut?'Futures price F (in use)':'Futures price (optional)';
+ $('S2').parentNode.firstChild.textContent=fut?'New futures price':'New spot';$('Q').disabled=fut;
+ const outs=['price','iv','gr','mx','sc','split','apx','mdl'];
+ if(MAIN.some(k=>v.errors[k])){outs.forEach(k=>$(k).innerHTML='');$('price').textContent='–';$('err').textContent='Fix the highlighted inputs to see results.';return}
+ $('err').textContent='';const x=v.values;
+ const p={model:fut?'B76':'BS',U:fut?x.FP:x.S,K:x.K,T:x.D/E.DAY_COUNT,r:x.R,q:fut?0:x.Q,sig:x.V,type},U=fut?'F':'S',call=type==='C';
+ try{
+  const c=E.price(p),g=E.greeks(p);
+  $('mdl').textContent=(fut?'Black-76 on futures F = ':'Black–Scholes–Merton on spot S = ')+f(p.U)+' · T = '+f(p.T,5)+' yr (calendar days ÷ 365)';
+  $('price').textContent='₹ '+f(c.price)+' theoretical';
+  let h='';
+  if(x.M!=null){const r=E.impliedVol(p,x.M);
+   h=r.ok?'<table>'+rows([['Market premium',f(x.M,4)],['Theoretical premium at solved IV',f(r.theo,4)],['Implied volatility',f(r.iv*100,3)+'%'],['Absolute difference',f(r.diff,8)]])+'</table>':'<span class="dn">IV not calculated: '+r.error+'</span>'}
+  else h='Enter a market premium to solve for IV.';
+  const hs=Number($('S').value),hf=Number($('FP').value);if(hs>0&&hf>0&&p.T>0)h+='<br>Futures vs spot imply r − q ≈ '+f(Math.log(hf/hs)/p.T*100,2)+'% (noisy near expiry).';
+  $('iv').innerHTML=h;
+  $('gr').innerHTML=rows([['Delta (per 1 pt of '+U+')',f(g.delta,4)],['Gamma (per pt²)',f(g.gamma,6)],['Theta (₹ per calendar day)',f(g.theta,3)],['Vega (₹ per 1 IV pt)',f(g.vega,3)],['Rho (₹ per 1% rate'+(fut?', F fixed':'')+')',f(g.rho,3)]])+(g.notes.length?'<tr><td colspan="2" class="note">'+g.notes.join(' ')+'</td></tr>':'');
+  const intr=Math.max(call?p.U-p.K:p.K-p.U,0),prem=x.M!=null?x.M:c.price,sd=p.sig*Math.sqrt(p.T),em=p.U*sd;
+  const mu=(fut?0:p.r-p.q)-p.sig*p.sig/2,lo=p.U*Math.exp(mu*p.T-sd),hi=p.U*Math.exp(mu*p.T+sd);
+  const C=E.price({...p,type:'C'}).price-E.price({...p,type:'P'}).price,par=fut?Math.exp(-p.r*p.T)*(p.U-p.K):p.U*Math.exp(-p.q*p.T)-p.K*Math.exp(-p.r*p.T);
+  $('mx').innerHTML=rows([['Theoretical premium (model, entered IV)',f(c.price)],['Market premium (entered)',x.M!=null?f(x.M):'–'],['Market − theoretical',x.M!=null?f(x.M-c.price):'–'],
+   ['Intrinsic value',f(intr)],['Time value (theoretical − intrinsic)',f(c.price-intr)],
+   ['Risk-neutral P(finish ITM)',c.itmProb==null?'n/a':f(c.itmProb*100,1)+'%'],
+   ['Long '+(call?'call':'put')+' breakeven ('+(x.M!=null?'market':'theoretical')+' premium)',f(call?p.K+prem:p.K-prem)+' ('+f((call?p.K+prem:p.K-prem)/p.U*100-100,2)+'% from '+U+')'],
+   ['1σ move ≈ '+U+'·σ·√T (approx.)','±'+f(em)+' → '+f(p.U-em,0)+' to '+f(p.U+em,0)],
+   ['1σ daily move ≈ '+U+'·σ/√252','±'+f(p.U*p.sig/Math.sqrt(252))],
+   ['Lognormal 1σ range ('+(fut?'F, drift −σ²/2':'drift r−q−σ²/2')+')',f(lo,0)+' to '+f(hi,0)],
+   ['Call − Put (model)',f(C,4)],['Parity: '+(fut?'e^(−rT)(F−K)':'S·e^(−qT) − K·e^(−rT)'),f(par,4)]]);
+  $('split').textContent='';$('apx').textContent='';
+  if(v.errors.S2||v.errors.D2||v.errors.V2){$('sc').innerHTML='';$('split').innerHTML='<span class="dn">Fix the scenario inputs to run it.</span>';return}
+  const s=E.scenario(p,{U2:x.S2,days2:x.D2,sig2:x.V2});
+  const ch=s.change,pc=s.pct==null?'n/a (baseline premium is 0)':f(s.pct,1)+'%',v2=x.V2==null?p.sig:x.V2;
+  $('sc').innerHTML='<tr><th></th><th>Now</th><th>Scenario</th></tr>'+
+   '<tr><td>'+(fut?'Futures F':'Spot S')+'</td><td>'+f(p.U)+'</td><td>'+f(x.S2)+'</td></tr>'+
+   '<tr><td>Days to expiry</td><td>'+f(x.D)+'</td><td>'+f(x.D2)+'</td></tr>'+
+   '<tr><td>IV</td><td>'+f(p.sig*100)+'%</td><td>'+f(v2*100)+'%</td></tr>'+
+   '<tr><td>Repriced premium (exact)</td><td>'+f(s.p0)+'</td><td><b>'+f(s.p1)+'</b></td></tr>'+
+   '<tr><td>Change</td><td></td><td class="'+(ch>=0?'up':'dn')+'">'+(ch>=0?'+':'')+f(ch)+' ('+pc+')</td></tr>';
+  const a=s.attrib;$('split').textContent='Sequential attribution (order: underlying → time → IV; order-dependent): underlying '+f(a.underlying)+', time '+f(a.time)+', IV '+f(a.iv)+'.';
+  $('apx').textContent=s.approx==null?'Greeks estimate unavailable (a Greek is undefined here).':'Greeks estimate Δ·dU + ½Γ·dU² + Vega·dIV + Θ·days ≈ '+f(s.approx)+' vs repriced '+f(s.change)+' (approximation only, not exact repricing). Held fixed: strike, option type, rate'+(fut?'':', dividend yield')+'; rate scenarios are not supported.';
+ }catch(e){$('err').textContent='Calculation error: '+e.message}
+}
+$('go').onclick=run;$('go2').onclick=run;
+document.querySelectorAll('input,select').forEach(e=>e.addEventListener('input',run));
+run();
+
+</script>
+</body>
+</html>
