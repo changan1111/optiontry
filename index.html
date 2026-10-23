@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nifty Black-Scholes Calculator</title>
+<style>
+:root{--bg:#f3f5f9;--card:#fff;--ink:#14213d;--mute:#5b6477;--line:#d9deea;--acc:#1d3fb8;--up:#117a4a;--dn:#b3261e;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1424;--card:#172038;--ink:#e8ecf7;--mute:#9aa5c0;--line:#2a3555;--acc:#7f9bff;--up:#4cd08f;--dn:#ff8a80;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0e1424;--card:#172038;--ink:#e8ecf7;--mute:#9aa5c0;--line:#2a3555;--acc:#7f9bff;--up:#4cd08f;--dn:#ff8a80;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px;max-width:640px;margin-inline:auto}
+h1{font:600 24px/1.2 Georgia,"Times New Roman",serif;margin:8px 0 4px}
+h2{font:600 18px/1.3 Georgia,serif;margin:0 0 10px}
+p.sub{color:var(--mute);margin:0 0 16px;font-size:14px}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+.g{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label{display:block;font-size:13px;color:var(--mute)}
+input,select{width:100%;margin-top:3px;padding:9px;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+button{font:inherit;font-weight:600;padding:10px 14px;border-radius:8px;border:0;background:var(--acc);color:#fff;cursor:pointer;margin-top:10px}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) button{color:#0e1424}}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+td,th{padding:7px 4px;border-bottom:1px solid var(--line);text-align:right;font-size:15px}
+td:first-child,th:first-child{text-align:left;color:var(--mute)}
+.big{font:600 30px/1.1 Georgia,serif;font-variant-numeric:tabular-nums}
+.up{color:var(--up)}.dn{color:var(--dn)}
+.note{font-size:13px;color:var(--mute);margin-top:8px}
+.row{display:flex;gap:10px;align-items:center;margin-top:10px;font-size:14px}
+.row input{width:auto;margin:0}
+</style>
+</head>
+<body>
+<h1>Nifty option calculator</h1>
+<p class="sub">Black-Scholes price, Greeks, implied volatility and what-if scenarios.</p>
+
+<section>
+<h2>Inputs</h2>
+<div class="g">
+<label>Nifty spot<input id="S" type="number" value="22600" step="any"></label>
+<label>Strike<input id="K" type="number" value="22800" step="any"></label>
+<label>Type<select id="T"><option value="C">Call (CE)</option><option value="P">Put (PE)</option></select></label>
+<label>Days to expiry<input id="D" type="number" value="4" step="any"></label>
+<label>Volatility (IV) %<input id="V" type="number" value="14" step="any"></label>
+<label>Risk-free rate %<input id="R" type="number" value="5.75" step="any"></label>
+<label>Dividend yield %<input id="Q" type="number" value="1.5" step="any"></label>
+<label>Market price (for IV)<input id="M" type="number" value="58.45" step="any"></label>
+<label>Futures price (optional)<input id="FP" type="number" value="22589" step="any"></label>
+</div>
+<div class="row"><input id="F" type="checkbox"><label for="F" style="margin:0">Use futures price as underlying (Black-76 style: yield = rate)</label></div>
+<button id="go">Calculate</button>
+</section>
+
+<section>
+<h2>Result</h2>
+<div class="big" id="price">–</div>
+<div class="note" id="iv"></div>
+<table id="gr" style="margin-top:8px"></table>
+</section>
+
+<section>
+<h2>Trade metrics</h2>
+<table id="mx"></table>
+<div class="note">Probabilities are risk-neutral model values, not forecasts.</div>
+</section>
+
+<section>
+<h2>What-if scenario</h2>
+<div class="g">
+<label>New spot<input id="S2" type="number" value="22700" step="any"></label>
+<label>New days to expiry<input id="D2" type="number" value="3" step="any"></label>
+<label>New IV % (blank = keep)<input id="V2" type="number" step="any" placeholder="same"></label>
+</div>
+<button id="go2">Run scenario</button>
+<table id="sc" style="margin-top:8px"></table>
+<div class="note" id="split"></div>
+</section>
+
+<section>
+<h2>The formulas</h2>
+<p class="note" style="margin:0">d1 = [ln(S/K) + (r − q + σ²/2)·T] / (σ√T), d2 = d1 − σ√T.<br>
+Call = S·e<sup>−qT</sup>·N(d1) − K·e<sup>−rT</sup>·N(d2). Put = K·e<sup>−rT</sup>·N(−d2) − S·e<sup>−qT</sup>·N(−d1).<br>
+T = days ÷ 365. Implied volatility has no closed form: the page tries σ values (bisection) until the model price equals the market price. Newton-Raphson does the same faster: σ ← σ − (model − market) ÷ vega.<br>1σ expected move = S·σ·√T. Chance of finishing in the money = N(d2) for a call, N(−d2) for a put. Breakeven = strike ± premium.<br>IV rank = (today’s IV − 1-year low) ÷ (1-year high − low); a high rank favours selling premium, a low rank favours buying.<br>
+Educational tool, not trading advice. Real prices also reflect bid/ask, skew and the futures basis.</p>
+</section>
+
+<script>
+const $=id=>document.getElementById(id);
+function N(x){const t=1/(1+0.2316419*Math.abs(x));const d=0.3989422804014327*Math.exp(-x*x/2);
+const p=d*t*(0.31938153+t*(-0.356563782+t*(1.781477937+t*(-1.821255978+t*1.330274429))));return x>0?1-p:p}
+function pdf(x){return 0.3989422804014327*Math.exp(-x*x/2)}
+function bs(S,K,T,r,q,v,type){
+ if(T<=0||v<=0){const i=type==='C'?Math.max(S-K,0):Math.max(K-S,0);return{p:i,delta:type==='C'?(S>K?1:0):(S<K?-1:0),gamma:0,theta:0,vega:0,rho:0}}
+ const sq=Math.sqrt(T),d1=(Math.log(S/K)+(r-q+v*v/2)*T)/(v*sq),d2=d1-v*sq;
+ const eq=Math.exp(-q*T),er=Math.exp(-r*T);let p,delta,theta,rho;
+ const base=-S*eq*pdf(d1)*v/(2*sq);
+ if(type==='C'){p=S*eq*N(d1)-K*er*N(d2);delta=eq*N(d1);theta=base-r*K*er*N(d2)+q*S*eq*N(d1);rho=K*T*er*N(d2)}
+ else{p=K*er*N(-d2)-S*eq*N(-d1);delta=-eq*N(-d1);theta=base+r*K*er*N(-d2)-q*S*eq*N(-d1);rho=-K*T*er*N(-d2)}
+ return{p,delta,gamma:eq*pdf(d1)/(S*v*sq),theta:theta/365,vega:S*eq*pdf(d1)*sq/100,rho:rho/100}}
+function iv(S,K,T,r,q,type,m){let lo=0.001,hi=5;
+ const intr=type==='C'?Math.max(S*Math.exp(-q*T)-K*Math.exp(-r*T),0):Math.max(K*Math.exp(-r*T)-S*Math.exp(-q*T),0);
+ if(!(m>intr))return null;
+ for(let i=0;i<80;i++){const mid=(lo+hi)/2;if(bs(S,K,T,r,q,mid,type).p>m)hi=mid;else lo=mid}
+ return (lo+hi)/2}
+function inp(){const r=+$('R').value/100;let q=+$('Q').value/100;if($('F').checked)q=r;
+ return{S:+$('S').value,K:+$('K').value,T:+$('D').value/365,r,q,v:+$('V').value/100,type:$('T').value,m:+$('M').value}}
+const f=(x,d=2)=>Number(x).toFixed(d);
+function calc(){const a=inp();const o=bs(a.S,a.K,a.T,a.r,a.q,a.v,a.type);
+ $('price').textContent='₹ '+f(o.p);
+ const im=a.m>0?iv(a.S,a.K,a.T,a.r,a.q,a.type,a.m):null;
+ $('iv').textContent=im?('Market price ₹'+f(a.m)+' implies IV ≈ '+f(im*100,2)+'%'):'Enter a market price above intrinsic value to get implied volatility.';
+ const fp=+$('FP').value;
+ if(fp>0&&a.T>0){const c=Math.log(fp/a.S)/a.T;$('iv').textContent+=' | Futures imply r − q ≈ '+f(c*100,2)+'%, so with your rate, yield ≈ '+f((a.r-c)*100,2)+'%. (Noisy for near expiry; use a longer-dated future.)'}
+ {const sq=Math.sqrt(a.T),d2=(Math.log(a.S/a.K)+(a.r-a.q-a.v*a.v/2)*a.T)/(a.v*sq);
+ const C=a.type==='C',intr=C?Math.max(a.S-a.K,0):Math.max(a.K-a.S,0),prem=a.m>0?a.m:o.p;
+ const pi=C?N(d2):N(-d2),be=C?a.K+prem:a.K-prem,em=a.S*a.v*sq,dm=a.S*a.v/Math.sqrt(252);
+ const par=a.S*Math.exp(-a.q*a.T)-a.K*Math.exp(-a.r*a.T);
+ $('mx').innerHTML=[['Intrinsic value',f(intr)],['Time value (model)',f(o.p-intr)],
+ ['Market minus model',a.m>0?f(a.m-o.p):'–'],
+ ['Chance of expiring in the money',f(pi*100,1)+'%'],
+ ['Breakeven at expiry',f(be)+' ('+f((be/a.S-1)*100,2)+'% from spot)'],
+ ['1σ move to expiry (±)',f(em)+' → '+f(a.S-em,0)+' to '+f(a.S+em,0)],
+ ['1σ daily move (±)',f(dm)+' pts'],
+ ['Call − Put should equal',f(par)+' (put-call parity)']].map(x=>'<tr><td>'+x[0]+'</td><td>'+x[1]+'</td></tr>').join('')}
+ $('gr').innerHTML=[['Delta',f(o.delta,4)],['Gamma',f(o.gamma,6)],['Theta (per day)',f(o.theta,2)],['Vega (per 1% IV)',f(o.vega,2)],['Rho (per 1% rate)',f(o.rho,2)]].map(x=>'<tr><td>'+x[0]+'</td><td>'+x[1]+'</td></tr>').join('')}
+function scen(){const a=inp();const b=bs(a.S,a.K,a.T,a.r,a.q,a.v,a.type);
+ const S2=+$('S2').value,T2=+$('D2').value/365,v2=$('V2').value===''?a.v:+$('V2').value/100;
+ const n=bs(S2,a.K,T2,a.r,a.q,v2,a.type);const ch=n.p-b.p;
+ $('sc').innerHTML='<tr><th></th><th>Now</th><th>Scenario</th></tr>'+
+ '<tr><td>Spot</td><td>'+f(a.S)+'</td><td>'+f(S2)+'</td></tr>'+
+ '<tr><td>IV %</td><td>'+f(a.v*100)+'</td><td>'+f(v2*100)+'</td></tr>'+
+ '<tr><td>Price</td><td>'+f(b.p)+'</td><td><b>'+f(n.p)+'</b></td></tr>'+
+ '<tr><td>Change</td><td></td><td class="'+(ch>=0?'up':'dn')+'">'+(ch>=0?'+':'')+f(ch)+'</td></tr>';
+ const s1=bs(S2,a.K,a.T,a.r,a.q,a.v,a.type).p-b.p;
+ const s2=bs(S2,a.K,T2,a.r,a.q,a.v,a.type).p-bs(S2,a.K,a.T,a.r,a.q,a.v,a.type).p;
+ const s3=n.p-bs(S2,a.K,T2,a.r,a.q,a.v,a.type).p;
+ $('split').innerHTML='Split of the change: spot move '+f(s1)+', time decay '+f(s2)+', IV change '+f(s3)+'.'}
+$('go').onclick=()=>{calc();scen()};$('go2').onclick=scen;
+document.querySelectorAll('input,select').forEach(e=>e.addEventListener('input',()=>{calc();scen()}));
+calc();scen();
+</script>
+</body>
+</html>
